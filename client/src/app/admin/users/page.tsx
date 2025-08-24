@@ -1,40 +1,36 @@
-"use client"
+"use client";
 
-import React, { useState, useEffect } from "react";
-import { adminApi, PaginatedResponse } from "@/services/adminApi";
-import { Card, CardContent, CardHeader } from "@/components/ui/Card";
+import React, { useState, useEffect, useCallback } from "react";
+import { adminApi, AdminUser } from "@/services/adminApi";
 import { Pagination } from "@/components/ui/Pagination";
-import { Search, Edit, Plus, ChevronRight, ChevronDown, X } from "lucide-react";
+import { Search, Edit, Trash2, Plus, Users } from "lucide-react";
 
-interface Category {
-  _id: string;
-  title: string;
-  alias: string;
-  description: string;
-  type: "blueprint" | "project";
-  level: number;
-  parentId?: string;
-  fields: Array<{ fieldName: string; fieldType: string }>;
-  settings: {
-    focus: string;
-    tone: string;
-    quantity: string;
-    contentLenght: number;
-  };
-  createdAt: string;
-  updatedAt: string;
-  children?: Category[];
+// Debounce hook
+function useDebounce<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const handler = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debounced;
 }
 
-export default function CategoriesPage() {
-  const [categories, setCategories] = useState<Category[]>([]);
+interface CreateUserInput {
+  firstName: string;
+  lastName: string;
+  email: string;
+  role: "admin" | "user";
+  password: string;
+}
+
+export default function UsersPage() {
+  const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
-  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState(searchTerm);
-  const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
-  const [showEditModal, setShowEditModal] = useState(false);
+  const debouncedSearch = useDebounce(searchTerm, 400);
+  const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+  const [showEditModal, setShowEditModal] = useState(false);
   const [pagination, setPagination] = useState({
     currentPage: 1,
     totalPages: 1,
@@ -42,39 +38,26 @@ export default function CategoriesPage() {
     itemsPerPage: 25,
   });
 
-  // Debounce search term (500ms)
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedSearchTerm(searchTerm);
-    }, 500);
-    return () => clearTimeout(handler);
-  }, [searchTerm]);
-
-  // Load categories when pagination or debounced search changes
-  useEffect(() => {
-    loadCategories();
-  }, [pagination.currentPage, pagination.itemsPerPage, debouncedSearchTerm]);
-
-  const loadCategories = async () => {
+  const loadUsers = useCallback(async () => {
     try {
       setLoading(true);
-      const response = await adminApi.getCategories(
+      const response = await adminApi.getUsers(
         pagination.currentPage,
         pagination.itemsPerPage,
-        debouncedSearchTerm
+        debouncedSearch
       );
-      setCategories(response.data);
-      setPagination((prev) => ({
-        ...prev,
-        totalItems: response.pagination.totalItems,
-        totalPages: response.pagination.totalPages,
-      }));
+      setUsers(response.data);
+      setPagination(response.pagination);
     } catch (error) {
-      console.error("Error loading categories:", error);
+      console.error("Error loading users:", error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [pagination.currentPage, pagination.itemsPerPage, debouncedSearch]);
+
+  useEffect(() => {
+    loadUsers();
+  }, [loadUsers]);
 
   const handlePageChange = (page: number) => {
     setPagination((prev) => ({ ...prev, currentPage: page }));
@@ -89,164 +72,94 @@ export default function CategoriesPage() {
     setPagination((prev) => ({ ...prev, currentPage: 1 }));
   };
 
-  const expandAllCategories = (categories: Category[]) => {
-    const allIds = new Set<string>();
-    const collectIds = (cats: Category[]) => {
-      cats.forEach((cat) => {
-        if (cat.children && cat.children.length > 0) {
-          allIds.add(cat._id);
-          collectIds(cat.children);
-        }
-      });
-    };
-    collectIds(categories);
-    setExpandedCategories(allIds);
-  };
-
-  const collapseAllCategories = () => {
-    setExpandedCategories(new Set());
-  };
-
-  const toggleExpanded = (categoryId: string) => {
-    const newExpanded = new Set(expandedCategories);
-    if (newExpanded.has(categoryId)) {
-      newExpanded.delete(categoryId);
-    } else {
-      newExpanded.add(categoryId);
-    }
-    setExpandedCategories(newExpanded);
-  };
-
-  const renderCategoryTree = (categories: Category[], level = 0) => {
-    return categories.map((category, index) => (
-      <div key={`${category._id}-${level}-${index}`}>
-        <div
-          className={`flex items-center p-3 hover:bg-gray-50 border-b ${
-            level > 0 ? "ml-6" : ""
-          }`}
-        >
-          <div className="flex items-center flex-1">
-            {category.children && category.children.length > 0 && (
-              <button
-                onClick={() => toggleExpanded(category._id)}
-                className="p-1 mr-2"
-              >
-                {expandedCategories.has(category._id) ? (
-                  <ChevronDown className="h-4 w-4" />
-                ) : (
-                  <ChevronRight className="h-4 w-4" />
-                )}
-              </button>
-            )}
-            {category.children && category.children.length === 0 && (
-              <div className="w-6 mr-2"></div>
-            )}
-            <div className="flex-1">
-              <div className="font-medium">{category.title}</div>
-              <div className="text-sm text-gray-500">{category.alias}</div>
-            </div>
-            <div className="flex items-center space-x-2">
-              <span
-                className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  category.type === "blueprint"
-                    ? "bg-blue-100 text-blue-800"
-                    : "bg-green-100 text-green-800"
-                }`}
-              >
-                {category.type}
-              </span>
-              <span className="text-xs text-gray-500">Level {category.level}</span>
-              {category.children && category.children.length > 0 && (
-                <span className="text-xs text-gray-400">
-                  ({category.children.length} children)
-                </span>
-              )}
-              <button
-                onClick={() => handleEditCategory(category)}
-                className="p-1 text-blue-600 hover:text-blue-800"
-                title="Edit category (only alias can be modified)"
-              >
-                <Edit className="h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        </div>
-        {category.children &&
-          category.children.length > 0 &&
-          expandedCategories.has(category._id) && (
-            <div key={`children-${category._id}-${level}`}>
-              {renderCategoryTree(category.children, level + 1)}
-            </div>
-          )}
-      </div>
-    ));
-  };
-
-  const handleEditCategory = (category: Category) => {
-    setSelectedCategory(category);
+  const handleEditUser = (user: AdminUser) => {
+    setSelectedUser(user);
     setShowEditModal(true);
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-lg">Loading categories...</div>
-      </div>
-    );
-  }
+  const handleDeleteUser = async (userId: string) => {
+    if (confirm("Are you sure you want to delete this user?")) {
+      try {
+        await adminApi.deleteUser(userId);
+        await loadUsers();
+      } catch (error) {
+        console.error("Error deleting user:", error);
+      }
+    }
+  };
+
+  const handleCreateUser = async (newUser: CreateUserInput) => {
+    try {
+      const response = await fetch("http://localhost:5002/api/auth/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
+        },
+        body: JSON.stringify(newUser),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to create user");
+      }
+
+      await response.json();
+      await loadUsers();
+      setShowCreateModal(false);
+      alert("User created successfully!");
+    } catch (error: any) {
+      console.error("Error creating user:", error);
+      alert(`Error creating user: ${error.message}`);
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString();
+  };
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">
-            Categories Management
-          </h1>
-          <p className="text-gray-600 mt-2">
-            View content categories and their structure
-          </p>
-        </div>
-        <div className="flex items-center space-x-3">
-          <button
-            onClick={() => expandAllCategories(categories)}
-            className="bg-gray-600 text-white px-3 py-2 rounded-lg hover:bg-gray-700 text-sm"
-          >
-            Expand All
-          </button>
-          <button
-            onClick={collapseAllCategories}
-            className="bg-gray-600 text-white px-3 py-2 rounded-lg hover:bg-gray-700 text-sm"
-          >
-            Collapse All
-          </button>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center space-x-2"
-          >
-            <Plus className="h-4 w-4" />
-            <span>Add Category</span>
-          </button>
+    <div className="space-y-8">
+      <div className="bg-gradient-to-r from-purple-600 to-blue-600 rounded-2xl p-8 text-white">
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-4xl font-bold mb-2">Users Management</h1>
+            <p className="text-purple-100 text-lg">
+              Monitor and manage user accounts with detailed insights
+            </p>
+          </div>
+          <div className="flex items-center space-x-4">
+            <div className="hidden md:block">
+              <div className="h-20 w-20 bg-white/20 rounded-full flex items-center justify-center backdrop-blur-sm">
+                <Users className="h-10 w-10 text-white" />
+              </div>
+            </div>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="bg-white/20 backdrop-blur-sm text-white px-6 py-3 rounded-xl hover:bg-white/30 flex items-center space-x-2 transition-all duration-300 font-medium"
+            >
+              <Plus className="h-5 w-5" />
+              <span>Add New User</span>
+            </button>
+          </div>
         </div>
       </div>
-      <Card>
-        <CardHeader>
-          <div className="flex items-center space-x-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-              <input
-                type="text"
-                placeholder="Search categories..."
-                value={searchTerm}
-                onChange={(e) => handleSearch(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-0">{renderCategoryTree(categories)}</div>
-        </CardContent>
-      </Card>
+
+      <div className="bg-white rounded-2xl shadow-lg border border-gray-100 overflow-hidden">
+        <div className="bg-gradient-to-r from-gray-50 to-purple-50 px-6 py-4 border-b border-gray-100">
+          <SearchField value={searchTerm} onChange={handleSearch} />
+        </div>
+        <div className="p-6">
+          <UserResults
+            users={users}
+            loading={loading}
+            onEdit={handleEditUser}
+            onDelete={handleDeleteUser}
+            formatDate={formatDate}
+          />
+        </div>
+      </div>
+
       {!loading && pagination.totalPages > 1 && (
         <Pagination
           currentPage={pagination.currentPage}
@@ -257,389 +170,409 @@ export default function CategoriesPage() {
           onItemsPerPageChange={handleItemsPerPageChange}
         />
       )}
-      {showEditModal && selectedCategory && (
-        <CategoryModal
-          category={selectedCategory}
-          categories={categories}
+
+      {showEditModal && selectedUser && (
+        <EditUserModal
+          user={selectedUser}
           onClose={() => {
             setShowEditModal(false);
-            setSelectedCategory(null);
+            setSelectedUser(null);
           }}
-          onSave={async (updatedCategory) => {
+          onSave={async (updatedUser: Partial<AdminUser>) => {
             try {
-              await adminApi.updateCategory(selectedCategory._id, updatedCategory);
-              await loadCategories();
+              await adminApi.updateUser(selectedUser._id, updatedUser);
+              await loadUsers();
               setShowEditModal(false);
-              setSelectedCategory(null);
+              setSelectedUser(null);
             } catch (error) {
-              console.error("Error updating category:", error);
+              console.error("Error updating user:", error);
             }
           }}
         />
       )}
+
       {showCreateModal && (
-        <CategoryModal
+        <CreateUserModal
           onClose={() => setShowCreateModal(false)}
-          categories={categories}
-          onSave={async (newCategory) => {
-            try {
-              await adminApi.createCategory(newCategory);
-              await loadCategories();
-              setShowCreateModal(false);
-            } catch (error) {
-              console.error("Error creating category:", error);
-            }
-          }}
+          onSave={handleCreateUser}
         />
       )}
     </div>
   );
 }
 
-interface CategoryModalProps {
-  category?: Category;
-  categories: Category[];
-  onClose: () => void;
-  onSave: (category: Partial<Category>) => void;
+// SearchField component
+function SearchField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div className="flex items-center space-x-4">
+      <div className="relative flex-1">
+        <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+        <input
+          type="text"
+          placeholder="Search users by name or email..."
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white shadow-sm transition-all duration-200"
+        />
+      </div>
+    </div>
+  );
 }
 
-function CategoryModal({ category, categories, onClose, onSave }: CategoryModalProps) {
-  const [formData, setFormData] = useState({
-    title: category?.title || "",
-    alias: category?.alias || "",
-    description: category?.description || "",
-    type: category?.type || "project",
-    level: category?.level || 0,
-    parentId: category?.parentId || null,
-    fields: category?.fields || [],
-    settings: category?.settings || {
-      focus: "",
-      tone: "",
-      quantity: "",
-      contentLenght: 0,
-    },
+// UserResults component
+function UserResults({
+  users,
+  loading,
+  onEdit,
+  onDelete,
+  formatDate,
+}: {
+  users: AdminUser[];
+  loading: boolean;
+  onEdit: (user: AdminUser) => void;
+  onDelete: (id: string) => void;
+  formatDate: (date: string) => string;
+}) {
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-lg">Loading users...</div>
+      </div>
+    );
+  }
+  if (!users.length) {
+    return (
+      <div className="flex items-center justify-center h-32 text-gray-500">
+        No users found.
+      </div>
+    );
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full">
+        <thead>
+          <tr className="border-b border-gray-200 bg-gray-50/50">
+            <th className="text-left py-4 px-6 font-semibold text-gray-700">
+              User Details
+            </th>
+            <th className="text-left py-4 px-6 font-semibold text-gray-700">
+              Role & Status
+            </th>
+            <th className="text-left py-4 px-6 font-semibold text-gray-700">
+              Usage Statistics
+            </th>
+            <th className="text-left py-4 px-6 font-semibold text-gray-700">
+              Member Since
+            </th>
+            <th className="text-left py-4 px-6 font-semibold text-gray-700">
+              Actions
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {users.map((user, index) => (
+            <tr
+              key={user._id}
+              className={`border-b border-gray-100 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 transition-all duration-200 ${
+                index % 2 === 0 ? "bg-white" : "bg-gray-50/30"
+              }`}
+            >
+              <td className="py-5 px-6">
+                <div className="flex items-center space-x-4">
+                  <div
+                    className={`h-12 w-12 rounded-full flex items-center justify-center font-semibold text-white ${
+                      user.role === "admin"
+                        ? "bg-gradient-to-r from-red-500 to-pink-500"
+                        : "bg-gradient-to-r from-blue-500 to-indigo-500"
+                    }`}
+                  >
+                    {(user.firstName?.[0] || user.email[0]).toUpperCase()}
+                  </div>
+                  <div>
+                    <div className="font-semibold text-gray-900 text-lg">
+                      {user.firstName} {user.lastName}
+                    </div>
+                    <div className="text-gray-500 text-sm">
+                      {user.email}
+                    </div>
+                  </div>
+                </div>
+              </td>
+              <td className="py-5 px-6">
+                <span
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold shadow-sm ${
+                    user.role === "admin"
+                      ? "bg-gradient-to-r from-red-100 to-pink-100 text-red-700 border border-red-200"
+                      : "bg-gradient-to-r from-blue-100 to-emerald-100 text-blue-700 border border-blue-200"
+                  }`}
+                >
+                  {user.role.toUpperCase()}
+                </span>
+              </td>
+              <td className="py-5 px-6">
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="font-medium text-gray-900">
+                      {user.wordsUsed.toLocaleString()}
+                    </span>
+                    <span className="text-gray-500">
+                      / {user.totalWords.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2.5">
+                    <div
+                      className="bg-gradient-to-r from-blue-500 to-purple-600 h-2.5 rounded-full transition-all duration-500"
+                      style={{
+                        width: `${Math.min(
+                          (user.wordsUsed / user.totalWords) * 100,
+                          100
+                        )}%`,
+                      }}
+                    ></div>
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    {Math.round((user.wordsUsed / user.totalWords) * 100)}
+                    % used
+                  </div>
+                </div>
+              </td>
+              <td className="py-5 px-6 text-sm text-gray-600">
+                <div className="flex items-center space-x-1">
+                  <span>{formatDate(user.createdAt)}</span>
+                </div>
+              </td>
+              <td className="py-5 px-6">
+                <div className="flex space-x-2">
+                  <button
+                    onClick={() => onEdit(user)}
+                    className="p-2 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition-all duration-200"
+                    title="Edit user"
+                  >
+                    <Edit className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => onDelete(user._id)}
+                    className="p-2 text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-all duration-200"
+                    title="Delete user"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// EditUserModal component
+function EditUserModal({
+  user,
+  onClose,
+  onSave,
+}: {
+  user: AdminUser;
+  onClose: () => void;
+  onSave: (updatedUser: Partial<AdminUser>) => void | Promise<void>;
+}) {
+  const [form, setForm] = useState<Partial<AdminUser>>({
+    firstName: user.firstName,
+    lastName: user.lastName,
+    email: user.email,
+    role: user.role,
   });
 
-  const [newField, setNewField] = useState({
-    fieldName: "",
-    fieldType: "text",
-  });
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    e.stopPropagation();
-    const cleanedData = {
-      ...formData,
-      parentId: formData.parentId || null,
-    };
-    if (category) {
-      const { title, ...updateData } = cleanedData;
-      onSave(updateData);
-    } else {
-      onSave(cleanedData);
-    }
-  };
-
-  const [fieldError, setFieldError] = useState<string | null>(null);
-
-  const addField = () => {
-    if (!newField.fieldName.trim()) {
-      setFieldError("Field name is required.");
-      return;
-    }
-    setFormData({
-      ...formData,
-      fields: [...formData.fields, { ...newField }],
-    });
-    setNewField({ fieldName: "", fieldType: "text" });
-    setFieldError(null);
-  };
-
-  const removeField = (index: number) => {
-    setFormData({
-      ...formData,
-      fields: formData.fields.filter((_, i) => i !== index),
-    });
+    onSave(form);
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="flex items-start justify-between mb-4">
-          <div>
-            <h2 className="text-xl font-bold">
-              {category ? "Edit Category" : "Create Category"}
-            </h2>
-            {category && (
-              <p className="text-sm text-gray-600 mt-1 font-normal">
-                Note: Only the alias can be modified for existing categories
-              </p>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-2 rounded-full hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md">
+        <h2 className="text-2xl font-bold mb-4">Edit User</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Title{" "}
-                {category && (
-                  <span className="text-gray-500 text-xs">(Read-only)</span>
-                )}
-              </label>
-              <input
-                type="text"
-                value={formData.title}
-                onChange={(e) =>
-                  setFormData({ ...formData, title: e.target.value })
-                }
-                className={`w-full p-2 border rounded-lg ${
-                  category ? "bg-gray-100 cursor-not-allowed" : ""
-                }`}
-                required
-                disabled={!!category}
-                title={
-                  category ? "Title cannot be changed for existing categories" : ""
-                }
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Alias</label>
-              <input
-                type="text"
-                value={formData.alias}
-                onChange={(e) =>
-                  setFormData({ ...formData, alias: e.target.value })
-                }
-                className="w-full p-2 border rounded-lg"
-                required
-              />
-            </div>
-          </div>
           <div>
-            <label className="block text-sm font-medium mb-1">Description</label>
-            <textarea
-              value={formData.description}
-              onChange={(e) =>
-                setFormData({ ...formData, description: e.target.value })
-              }
-              className="w-full p-2 border rounded-lg"
-              rows={3}
+            <label className="block text-sm font-medium mb-1">First Name</label>
+            <input
+              type="text"
+              name="firstName"
+              value={form.firstName || ""}
+              onChange={handleChange}
+              className="w-full border rounded px-3 py-2"
+              required
             />
           </div>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Type</label>
-              <select
-                value={formData.type}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    type: e.target.value as "blueprint" | "project",
-                  })
-                }
-                className="w-full p-2 border rounded-lg"
-              >
-                <option value="project">Project</option>
-                <option value="blueprint">Blueprint</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Level</label>
-              <input
-                type="number"
-                value={formData.level}
-                onChange={(e) =>
-                  setFormData({ ...formData, level: parseInt(e.target.value) })
-                }
-                className="w-full p-2 border rounded-lg"
-                min="0"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Parent Category
-              </label>
-              <select
-                value={formData.parentId || ""}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    parentId: e.target.value === "" ? null : e.target.value,
-                  })
-                }
-                className="w-full p-2 border rounded-lg"
-              >
-                <option value="">None</option>
-                {categories.map((cat) => (
-                  <option key={cat._id} value={cat._id}>
-                    {cat.title}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Last Name</label>
+            <input
+              type="text"
+              name="lastName"
+              value={form.lastName || ""}
+              onChange={handleChange}
+              className="w-full border rounded px-3 py-2"
+              required
+            />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-2">Fields</label>
-            <div className="space-y-2">
-              {formData.fields.map((field, index) => (
-                <div key={index} className="flex items-center space-x-2">
-                  <input
-                    type="text"
-                    value={field.fieldName}
-                    onChange={(e) => {
-                      const newFields = [...formData.fields];
-                      newFields[index].fieldName = e.target.value;
-                      setFormData({ ...formData, fields: newFields });
-                    }}
-                    className="flex-1 p-2 border rounded-lg"
-                    placeholder="Field name"
-                  />
-                  <select
-                    value={field.fieldType}
-                    onChange={(e) => {
-                      const newFields = [...formData.fields];
-                      newFields[index].fieldType = e.target.value;
-                      setFormData({ ...formData, fields: newFields });
-                    }}
-                    className="p-2 border rounded-lg"
-                  >
-                    <option value="text">Text</option>
-                    <option value="number">Number</option>
-                    <option value="date">Date</option>
-                    <option value="boolean">Boolean</option>
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => removeField(index)}
-                    className="p-2 text-red-600 hover:text-red-800"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              ))}
-              <div className="flex items-center space-x-2">
-                <input
-                  type="text"
-                  value={newField.fieldName}
-                  onChange={(e) =>
-                    setNewField({ ...newField, fieldName: e.target.value })
-                  }
-                  className="flex-1 p-2 border rounded-lg"
-                  placeholder="New field name"
-                />
-                <select
-                  value={newField.fieldType}
-                  onChange={(e) =>
-                    setNewField({ ...newField, fieldType: e.target.value })
-                  }
-                  className="p-2 border rounded-lg"
-                >
-                  <option value="text">Text</option>
-                  <option value="number">Number</option>
-                  <option value="date">Date</option>
-                  <option value="boolean">Boolean</option>
-                </select>
-                <button
-                  type="button"
-                  onClick={addField}
-                  className="p-2 text-blue-600 hover:text-blue-800"
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
-              </div>
-              {fieldError && (
-                <p className="text-red-500 text-sm mt-1">{fieldError}</p>
-              )}
-            </div>
+            <label className="block text-sm font-medium mb-1">Email</label>
+            <input
+              type="email"
+              name="email"
+              value={form.email || ""}
+              onChange={handleChange}
+              className="w-full border rounded px-3 py-2"
+              required
+            />
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Focus</label>
-              <input
-                type="text"
-                value={formData.settings.focus}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    settings: { ...formData.settings, focus: e.target.value },
-                  })
-                }
-                className="w-full p-2 border rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Tone</label>
-              <input
-                type="text"
-                value={formData.settings.tone}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    settings: { ...formData.settings, tone: e.target.value },
-                  })
-                }
-                className="w-full p-2 border rounded-lg"
-              />
-            </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Role</label>
+            <select
+              name="role"
+              value={form.role || ""}
+              onChange={handleChange}
+              className="w-full border rounded px-3 py-2"
+              required
+            >
+              <option value="user">User</option>
+              <option value="admin">Admin</option>
+            </select>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Quantity</label>
-              <input
-                type="text"
-                value={formData.settings.quantity}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    settings: {
-                      ...formData.settings,
-                      quantity: e.target.value,
-                    },
-                  })
-                }
-                className="w-full p-2 border rounded-lg"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Content Length
-              </label>
-              <input
-                type="number"
-                value={formData.settings.contentLenght}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    settings: {
-                      ...formData.settings,
-                      contentLenght: parseInt(e.target.value),
-                    },
-                  })
-                }
-                className="w-full p-2 border rounded-lg"
-              />
-            </div>
-          </div>
-          <div className="flex space-x-3 pt-4">
+          <div className="flex justify-end space-x-2">
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-4 py-2 border rounded-lg hover:bg-gray-50"
+              className="px-4 py-2 rounded bg-gray-200 hover:bg-gray-300"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
             >
-              {category ? "Update Category" : "Create Category"}
+              Save
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// CreateUserModal component
+function CreateUserModal({
+  onClose,
+  onSave,
+}: {
+  onClose: () => void;
+  onSave: (user: CreateUserInput) => void | Promise<void>;
+}) {
+  const [form, setForm] = useState<CreateUserInput>({
+    firstName: "",
+    lastName: "",
+    email: "",
+    role: "user",
+    password: "",
+  });
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSave(form);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-xl shadow-lg p-8 w-full max-w-md">
+        <h2 className="text-2xl font-bold mb-4">Add New User</h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">First Name</label>
+            <input
+              type="text"
+              name="firstName"
+              value={form.firstName}
+              onChange={handleChange}
+              className="w-full border rounded px-3 py-2"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Last Name</label>
+            <input
+              type="text"
+              name="lastName"
+              value={form.lastName}
+              onChange={handleChange}
+              className="w-full border rounded px-3 py-2"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Email</label>
+            <input
+              type="email"
+              name="email"
+              value={form.email}
+              onChange={handleChange}
+              className="w-full border rounded px-3 py-2"
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Role</label>
+            <select
+              name="role"
+              value={form.role}
+              onChange={handleChange}
+              className="w-full border rounded px-3 py-2"
+              required
+            >
+              <option value="user">User</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Password</label>
+            <input
+              type="password"
+              name="password"
+              value={form.password}
+              onChange={handleChange}
+              className="w-full border rounded px-3 py-2"
+              required
+            />
+          </div>
+          <div className="flex justify-end space-x-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded bg-gray-200 hover:bg-gray-300"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-2 rounded bg-purple-600 text-white hover:bg-purple-700"
+            >
+              Create
             </button>
           </div>
         </form>
